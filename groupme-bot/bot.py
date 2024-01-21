@@ -9,7 +9,7 @@ load_dotenv()
 BOT_ID = os.getenv("BOT_ID")
 GROUP_ID = os.getenv("GROUP_ID")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-LAST_MESSAGE_ID = None
+LAST_TIMESTAMP = None  # Use timestamp instead of message ID to track the latest message
 
 
 def send_message(text, attachments=None):
@@ -20,40 +20,71 @@ def send_message(text, attachments=None):
     return response.status_code == 202
 
 
-def get_group_messages(since_id=None):
+def get_group_messages():
     """Retrieve recent messages from the group."""
     params = {"token": ACCESS_TOKEN}
-    if since_id:
-        params["since_id"] = since_id
-
     get_url = f"https://api.groupme.com/v3/groups/{GROUP_ID}/messages"
     response = requests.get(get_url, params=params)
     if response.status_code == 200:
-        # this shows how to use the .get() method to get specifically the messages but there is more you can do (hint: sample.json)
         return response.json().get("response", {}).get("messages", [])
     return []
 
 
+import giphy_client
+from giphy_client.rest import ApiException
+
+giphy_api_key = os.getenv("GIPHY_API_KEY")
+api_instance = giphy_client.DefaultApi()
+
+def send_gif(tag):
+    try:
+        # Get a random GIF based on the tag
+        response = api_instance.gifs_random_get(giphy_api_key, tag=tag, rating='g')
+        gif_url = response.data.image_url
+        send_message(gif_url)
+    except ApiException as e:
+        print("Exception when calling DefaultApi->gifs_random_get: %s\n" % e)
+
 def process_message(message):
-    """Process and respond to a message."""
-    global LAST_MESSAGE_ID
+    global LAST_TIMESTAMP
+    sender_id = message["sender_id"]
+    sender_name = message["name"]
     text = message["text"].lower()
+    timestamp = message["created_at"]
 
-    # i.e. responding to a specific message (note that this checks if "hello bot" is anywhere in the message, not just the beginning)
-    if "hello bot" in text:
-        send_message("sup")
+    if LAST_TIMESTAMP is None or timestamp > LAST_TIMESTAMP:
+        # Responding to your message only
+        if sender_id == 90793732:
+            send_message("Hello! This is your bot responding to your message.")
 
-    LAST_MESSAGE_ID = message["id"]
+        #Not own Bot
+        if message["sender_type"] != "bot":
+        # Good Morning/Good Night
+            if "good morning" in text:
+                send_message(f"Good morning, {sender_name}!")
+            elif "good night" in text:
+                send_message(f"Good night, {sender_name}!")
 
+            
+            if "giphy" in text:    
+                search_term = text.replace("/giphy", "").strip()
+                if search_term:
+                    send_gif(search_term)
+
+        LAST_TIMESTAMP = timestamp
 
 def main():
-    global LAST_MESSAGE_ID
-    # this is an infinite loop that will try to read (potentially) new messages every 10 seconds, but you can change this to run only once or whatever you want
+    global LAST_TIMESTAMP 
+    LAST_TIMESTAMP = get_group_messages()[0]["created_at"]
+
     while True:
-        messages = get_group_messages(LAST_MESSAGE_ID)
+        messages = get_group_messages()
+
         for message in reversed(messages):
             process_message(message)
+
         time.sleep(10)
+        print("check")
 
 
 if __name__ == "__main__":
